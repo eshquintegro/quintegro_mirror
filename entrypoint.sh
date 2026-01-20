@@ -67,17 +67,33 @@ fi
 
 git remote add ${REMOTE_NAME} "${REMOTE}"
 
-NEGATIVE_REFSPECS=""
-if [[ -n "${EXCLUDE_BRANCHES}" ]]; then
-    IFS=',' read -ra EXCLUDED <<< "${EXCLUDE_BRANCHES}"
-    for excluded in "${EXCLUDED[@]}"; do
-        excluded=$(echo "$excluded" | xargs)
-        [[ -n "${excluded}" ]] && NEGATIVE_REFSPECS="${NEGATIVE_REFSPECS} \"^refs/remotes/origin/${excluded}\""
-    done
-fi
-
 if [[ "${INPUT_PUSH_ALL_REFS}" != "false" ]]; then
-    eval git push ${GIT_PUSH_ARGS} ${REMOTE_NAME} "\"refs/remotes/origin/*:refs/heads/*\"" ${NEGATIVE_REFSPECS}
+    if [[ -n "${EXCLUDE_BRANCHES}" ]]; then
+        # Build exclusion set for faster lookup
+        IFS=',' read -ra EXCLUDED <<< "${EXCLUDE_BRANCHES}"
+        declare -A EXCLUDE_SET
+        for excluded in "${EXCLUDED[@]}"; do
+            excluded=$(echo "$excluded" | xargs)
+            [[ -n "${excluded}" ]] && EXCLUDE_SET["${excluded}"]=1
+        done
+        # Build explicit refspec list excluding specified branches
+        # This is more reliable than negative refspecs with wildcards
+        REFSPECS=()
+        while IFS= read -r branch; do
+            # Remove 'origin/' prefix and check if branch should be excluded
+            branch_name="${branch#refs/remotes/origin/}"
+            # Skip HEAD and excluded branches
+            if [[ "${branch_name}" != "HEAD" && -z "${EXCLUDE_SET["${branch_name}"]}" ]]; then
+                REFSPECS+=("${branch}:refs/heads/${branch_name}")
+            fi
+        done < <(git for-each-ref --format='%(refname)' refs/remotes/origin/)
+        # Push with explicit refspecs
+        if [[ ${#REFSPECS[@]} -gt 0 ]]; then
+            git push ${GIT_PUSH_ARGS} ${REMOTE_NAME} "${REFSPECS[@]}"
+        fi
+    else
+        git push ${GIT_PUSH_ARGS} ${REMOTE_NAME} "refs/remotes/origin/*:refs/heads/*"
+    fi
 else
     if [[ "${HAS_CHECKED_OUT}" != "true" ]]; then
         echo "FATAL: You must upgrade to using actions inputs instead of args: to push a single branch" > /dev/stderr
