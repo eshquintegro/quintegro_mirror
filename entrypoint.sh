@@ -67,17 +67,19 @@ fi
 
 git remote add ${REMOTE_NAME} "${REMOTE}"
 
-NEGATIVE_REFSPECS=""
-if [[ -n "${EXCLUDE_BRANCHES}" ]]; then
-    IFS=',' read -ra EXCLUDED <<< "${EXCLUDE_BRANCHES}"
-    for excluded in "${EXCLUDED[@]}"; do
-        excluded=$(echo "$excluded" | xargs)
-        [[ -n "${excluded}" ]] && NEGATIVE_REFSPECS="${NEGATIVE_REFSPECS} \"^refs/remotes/origin/${excluded}\""
-    done
-fi
-
 if [[ "${INPUT_PUSH_ALL_REFS}" != "false" ]]; then
-    eval git push ${GIT_PUSH_ARGS} ${REMOTE_NAME} "\"refs/remotes/origin/*:refs/heads/*\"" ${NEGATIVE_REFSPECS}
+    if [[ -n "${EXCLUDE_BRANCHES}" ]]; then
+        # Build push command with negative refspecs
+        PUSH_CMD="git push ${GIT_PUSH_ARGS} ${REMOTE_NAME} \"refs/remotes/origin/*:refs/heads/*\""
+        IFS=',' read -ra EXCLUDED <<< "${EXCLUDE_BRANCHES}"
+        for excluded in "${EXCLUDED[@]}"; do
+            excluded=$(echo "$excluded" | xargs)
+            [[ -n "${excluded}" ]] && PUSH_CMD="${PUSH_CMD} \"^refs/remotes/origin/${excluded}\""
+        done
+        eval ${PUSH_CMD}
+    else
+        eval git push ${GIT_PUSH_ARGS} ${REMOTE_NAME} "\"refs/remotes/origin/*:refs/heads/*\""
+    fi
 else
     if [[ "${HAS_CHECKED_OUT}" != "true" ]]; then
         echo "FATAL: You must upgrade to using actions inputs instead of args: to push a single branch" > /dev/stderr
